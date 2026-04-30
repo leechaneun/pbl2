@@ -17,6 +17,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/user")
+@CrossOrigin(origins = "*")
 public class AuthController {
 
     private final MemberService memberService;

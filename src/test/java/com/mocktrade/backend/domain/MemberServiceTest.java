@@ -1,18 +1,14 @@
-package com.mocktrade.backend.domain.member;
+package com.mocktrade.backend.domain;
 
 
-import org.junit.jupiter.api.AfterEach;
+import com.mocktrade.backend.domain.member.Member;
+import com.mocktrade.backend.domain.member.MemberRepository;
+import com.mocktrade.backend.domain.member.MemberService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.*;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;

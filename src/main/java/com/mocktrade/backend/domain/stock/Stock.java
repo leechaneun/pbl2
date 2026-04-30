@@ -24,11 +24,4 @@ public class Stock {
     private Double changeRate;
     private LocalDateTime lastUpdated;
 
-    // 테스트 코드에서 사용하기 위한 편리한 생성자
-    public Stock(String stockCode, String stockName, Long currentPrice) {
-        this.stockCode = stockCode;
-        this.stockName = stockName;
-        this.currentPrice = currentPrice;
-        this.lastUpdated = LocalDateTime.now();
-    }
 }
