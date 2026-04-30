@@ -12,37 +12,40 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/posts")
-@CrossOrigin(origins = "*")
+@CrossOrigin(originPatterns = "*", allowCredentials = "true")
 @RequiredArgsConstructor
 public class PostController {
 
     private final PostService postService;
 
-    // 모든 게시글 조회
     @GetMapping
     public ResponseEntity<List<Post>> getAllPosts() {
         return ResponseEntity.ok(postService.findAllPosts());
     }
 
-    // 게시글 상세 조회
     @GetMapping("/{postId}")
     public ResponseEntity<Post> getPost(@PathVariable String postId) {
         return ResponseEntity.ok(postService.getPostDetail(postId));
     }
 
-    // 게시글 작성 (@RequestBody 사용)
     @PostMapping
     public ResponseEntity<String> savePost(@RequestBody Post post) {
         return ResponseEntity.ok(postService.createPost(post));
     }
 
-    // 좋아요 토글 (@PathVariable과 JSON 바디의 loginId 사용)
     @PostMapping("/{postId}/like")
-    public ResponseEntity<Void> toggleLike(
+    public ResponseEntity<Void> toggleLike(@PathVariable String postId, @RequestBody Map<String, String> body) {
+        postService.togglePostLike(postId, body.get("loginId"));
+        return ResponseEntity.ok().build();
+    }
+
+    // [추가] 댓글 작성 API
+    @PostMapping("/{postId}/comments")
+    public ResponseEntity<Void> addComment(
             @PathVariable String postId,
             @RequestBody Map<String, String> body
     ) {
-        postService.togglePostLike(postId, body.get("loginId"));
+        postService.addComment(postId, body.get("content"), body.get("author"));
         return ResponseEntity.ok().build();
     }
 }

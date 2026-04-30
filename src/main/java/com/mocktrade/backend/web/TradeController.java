@@ -12,7 +12,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/trade")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*") // 테스트용 모든 허용
+@CrossOrigin(originPatterns = "*", allowCredentials = "true")
 public class TradeController {
 
     private final TradeService tradeService;

@@ -13,7 +13,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/stocks")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*") // 프론트엔드에서의 접근을 허용합니다.
+@CrossOrigin(originPatterns = "*", allowCredentials = "true")
 public class StockController {
 
     private final StockRepository stockRepository;
