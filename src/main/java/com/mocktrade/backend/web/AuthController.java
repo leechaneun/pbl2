@@ -26,10 +26,7 @@ public class AuthController {
         this.memberService = memberService;
     }
 
-    /**
-     * 회원가입
-     * JSON 바디로 회원 정보를 받습니다.
-     */
+    //회원가입
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody Member member, BindingResult bindingResult) {
         if (bindingResult.hasErrors()) {

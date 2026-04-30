@@ -17,7 +17,7 @@ public class TradeController {
 
     private final TradeService tradeService;
 
-    // 매수 API
+    // 매수
     @PostMapping("/buy")
     public ResponseEntity<String> buy(@RequestBody Map<String, Object> req) {
         try {
@@ -32,7 +32,7 @@ public class TradeController {
         }
     }
 
-    // 매도 API
+    // 매도
     @PostMapping("/sell")
     public ResponseEntity<String> sell(@RequestBody Map<String, Object> req) {
         try {
@@ -47,7 +47,7 @@ public class TradeController {
         }
     }
 
-    // 내 보유 주식 조회 API
+    // 내 보유 주식 조회
     @GetMapping("/my/{loginId}")
     public ResponseEntity<List<Trade>> getMyTrades(@PathVariable String loginId) {
         return ResponseEntity.ok(tradeService.getMyTrades(loginId));

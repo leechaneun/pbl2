@@ -18,10 +18,7 @@ public class StockController {
 
     private final StockRepository stockRepository;
 
-    /**
-     * DB에 저장된 모든 주식 정보(실시간가 포함)를 반환합니다.
-     * 리액트 프로토타입의 fetchStocks() 함수와 연결됩니다.
-     */
+  //모든 종목 조회
     @GetMapping
     public List<Stock> getAllStocks() {
         return stockRepository.findAll();
