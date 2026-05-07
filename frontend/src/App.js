@@ -1,574 +1,614 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
-  TrendingUp, Wallet, LayoutDashboard, RefreshCw, Search, 
-  ArrowUpRight, ArrowDownRight, Minus, DollarSign, 
-  PieChart, Activity, ShoppingCart, X, LogOut, 
-  LogIn, Key, User, Hash, AlertCircle, Loader2,
-  PenLine, MessageSquare, ShieldCheck, BarChart4,
-  ThumbsUp, Eye, Send, Clock
+  TrendingUp, 
+  MessageSquare, 
+  CheckCircle2, 
+  User, 
+  LogOut, 
+  Wallet, 
+  ArrowUpRight, 
+  ArrowDownRight,
+  Send,
+  ThumbsUp,
+  RefreshCw,
+  AlertCircle,
+  Activity,
+  Award,
+  BarChart3
 } from 'lucide-react';
 
-// --- [전역 설정] ---
-const API_BASE = "http://localhost:8080";
-axios.defaults.withCredentials = true;
+// Axios 설정: 세션 쿠키 공유를 위해 withCredentials 필수
+const api = axios.create({
+  baseURL: 'http://localhost:8080',
+  withCredentials: true,
+  timeout: 5000,
+});
 
-export default function App() {
-  const [user, setUser] = useState(null); 
-  const [view, setView] = useState('login'); 
-  const [isAuthChecked, setIsAuthChecked] = useState(false);
+const App = () => {
+  // 전역 상태
+  const [user, setUser] = useState(null);
+  const [currentPage, setCurrentPage] = useState('stocks');
+  const [loading, setLoading] = useState(true);
+  const [serverError, setServerError] = useState(false);
+
+  // 데이터 상태
   const [stocks, setStocks] = useState([]);
-  const [portfolio, setPortfolio] = useState([]);
-  const [posts, setPosts] = useState([]); // 게시글 목록
-  const [activeTab, setActiveTab] = useState('market'); // market | portfolio | community
-  const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [posts, setPosts] = useState([]);
+  const [missions, setMissions] = useState(null);
+  const [myTrades, setMyTrades] = useState([]);
+  const [isLive, setIsLive] = useState(false); // 실시간 업데이트 표시용
 
-  // 게시글 관련 상태
-  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
-  const [selectedPost, setSelectedPost] = useState(null); // 상세보기용
-  const [commentInput, setCommentInput] = useState('');
-  const [postForm, setPostForm] = useState({ title: '', content: '', stockName: '', stockCode: '', position: '매수' });
-  
-  // 거래 모달 상태
-  const [tradeModal, setTradeModal] = useState({ show: false, stock: null, type: 'buy' });
-  const [tradeQty, setTradeQty] = useState(1);
-  const [loginForm, setLoginForm] = useState({ loginId: '', password: '' });
-
-  // --- [계산 로직: 실시간 전체 수익률 및 평가액 인증] ---
-  const { myTotalYield, totalEvalAmt } = useMemo(() => {
-    if (!portfolio.length || !stocks.length) return { myTotalYield: "0.00", totalEvalAmt: 0 };
-    
-    let evalSum = 0;
-    let purchaseSum = 0;
-    
-    portfolio.forEach(p => {
-      const s = stocks.find(st => st.stockCode === p.stockCode);
-      const currentPrice = s?.currentPrice || p.averagePrice;
-      evalSum += currentPrice * p.quantity;
-      purchaseSum += p.averagePrice * p.quantity;
-    });
-    
-    const yieldRate = purchaseSum > 0 
-      ? ((evalSum - purchaseSum) / purchaseSum * 100).toFixed(2) 
-      : "0.00";
-
-    return { 
-      myTotalYield: yieldRate, 
-      totalEvalAmt: evalSum 
-    };
-  }, [portfolio, stocks]);
-
-  // --- [데이터 패칭] ---
-
-  const fetchStocks = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API_BASE}/stocks`);
-      setStocks(res.data || []);
-      setLastUpdated(new Date());
-    } catch (err) { console.error("주가 로드 실패"); }
+  // 초기 로드: 로그인 확인
+  useEffect(() => {
+    checkAuth();
   }, []);
 
-  const fetchUserData = useCallback(async () => {
-    if (!user) return;
-    try {
-      const portRes = await axios.get(`${API_BASE}/trade/my/${user.loginId}`);
-      setPortfolio(portRes.data || []);
-      const userRes = await axios.get(`${API_BASE}/user/me`);
-      if (userRes.data) setUser(userRes.data);
-    } catch (err) { console.error("데이터 동기화 실패"); }
-  }, [user]);
+  // 5초마다 주식 시세 자동 새로고침 (Polling)
+  useEffect(() => {
+    let interval;
+    if (user) {
+      interval = setInterval(() => {
+        setIsLive(true);
+        fetchStocks();
+        if (currentPage === 'portfolio') fetchMyTrades(user.loginId);
+        setTimeout(() => setIsLive(false), 1000);
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [user, currentPage]);
 
-  const fetchPosts = useCallback(async () => {
+  const checkAuth = async () => {
+    setServerError(false);
     try {
-      const res = await axios.get(`${API_BASE}/posts`);
-      setPosts(res.data || []);
-    } catch (err) { console.error("게시글 로드 실패"); }
-  }, []);
-
-  const fetchPostDetail = async (postId) => {
-    try {
-      const res = await axios.get(`${API_BASE}/posts/${postId}`);
-      setSelectedPost(res.data);
-    } catch (err) { console.error("상세보기 로드 실패"); }
+      const res = await api.get('/user/me');
+      setUser(res.data);
+      fetchInitialData(res.data.loginId);
+    } catch (e) {
+      if (!e.response) setServerError(true);
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const res = await axios.get(`${API_BASE}/user/me`);
-        if (res.data && res.data.loginId) {
-          setUser(res.data);
-          setView('main');
-        }
-      } catch (e) { setView('login'); }
-      finally { setIsAuthChecked(true); }
-    };
-    init();
-  }, []);
+  const fetchInitialData = (loginId) => {
+    fetchStocks();
+    fetchPosts();
+    fetchMissions(loginId);
+    fetchMyTrades(loginId);
+  };
 
-  useEffect(() => {
-    if (user && view === 'main') {
-      fetchStocks();
-      fetchUserData();
-      fetchPosts();
-      const timer = setInterval(() => {
-        fetchStocks();
-        fetchUserData();
-      }, 30000);
-      return () => clearInterval(timer);
-    }
-  }, [user, view, fetchStocks, fetchUserData, fetchPosts]);
-
-  // --- [핸들러] ---
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
+  const fetchStocks = async () => {
     try {
-      const res = await axios.post(`${API_BASE}/user/login`, loginForm);
-      setUser(res.data);
-      setView('main');
-    } catch (err) { alert("로그인 정보를 확인하세요."); }
+      const res = await api.get('/stocks');
+      setStocks(res.data);
+    } catch (e) { console.error("주식 로딩 실패", e); }
+  };
+
+  const fetchPosts = async () => {
+    try {
+      const res = await api.get('/posts');
+      setPosts(res.data);
+    } catch (e) { console.error("게시판 로딩 실패", e); }
+  };
+
+  const fetchMissions = async (loginId) => {
+    try {
+      const res = await api.get(`/missions/${loginId}`);
+      setMissions(res.data);
+    } catch (e) { console.error("미션 로딩 실패", e); }
+  };
+
+  const fetchMyTrades = async (loginId) => {
+    try {
+      const res = await api.get(`/trade/my/${loginId}`);
+      setMyTrades(res.data);
+    } catch (e) { console.error("포트폴리오 로딩 실패", e); }
   };
 
   const handleLogout = async () => {
     try {
-      await axios.post(`${API_BASE}/user/logout`);
+      await api.post('/user/logout');
+    } catch (e) {
+      console.error("Logout error", e);
+    } finally {
       setUser(null);
-      setView('login');
-    } catch (e) { window.location.reload(); }
+      setCurrentPage('stocks');
+    }
   };
 
-  const handleTrade = async () => {
-    setLoading(true);
-    try {
-      const endpoint = tradeModal.type === 'buy' ? '/trade/buy' : '/trade/sell';
-      const response = await axios.post(`${API_BASE}${endpoint}`, {
-        loginId: user.loginId,
-        stockCode: tradeModal.stock.stockCode,
-        quantity: parseInt(tradeQty)
-      });
-      alert(response.data);
-      setTradeModal({ show: false, stock: null, type: 'buy' });
-      fetchUserData();
-    } catch (err) { alert(err.response?.data || "거래 실패"); }
-    finally { setLoading(false); }
-  };
+  // 실시간 총 수익률 계산
+  const totalYield = calculateTotalYield(myTrades, stocks);
 
-  const handleSavePost = async (e) => {
-    e.preventDefault();
-    if (!postForm.stockName) { alert("종목을 선택해주세요."); return; }
-    try {
-      await axios.post(`${API_BASE}/posts`, {
-        ...postForm,
-        author: user.name,
-        yield: parseFloat(myTotalYield) 
-      });
-      alert("분석글이 성공적으로 게시되었습니다.");
-      setIsPostModalOpen(false);
-      fetchPosts();
-    } catch (err) { alert("게시글 저장 실패"); }
-  };
-
-  const handleLike = async (postId, e) => {
-    e.stopPropagation(); // 카드 클릭 이벤트 전파 방지
-    try {
-      await axios.post(`${API_BASE}/posts/${postId}/like`, { loginId: user.loginId });
-      fetchPosts();
-      if (selectedPost && selectedPost.postId === postId) fetchPostDetail(postId);
-    } catch (err) { console.error("좋아요 처리 실패"); }
-  };
-
-  const handleAddComment = async (e) => {
-    e.preventDefault();
-    if (!commentInput.trim()) return;
-    try {
-      await axios.post(`${API_BASE}/posts/${selectedPost.postId}/comments`, {
-        content: commentInput,
-        author: user.name
-      });
-      setCommentInput('');
-      fetchPostDetail(selectedPost.postId); // 댓글 목록 갱신
-    } catch (err) { alert("댓글 작성 실패"); }
-  };
-
-  // --- [렌더링] ---
-
-  if (!isAuthChecked) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white"><Loader2 className="animate-spin" size={48} /></div>;
-
-  if (view === 'login') {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-left">
-        <div className="bg-white p-12 rounded-[3.5rem] shadow-2xl w-full max-w-md">
-          <div className="text-center mb-10 text-left">
-            <TrendingUp className="mx-auto text-blue-600 mb-4" size={56} />
-            <h1 className="text-3xl font-black tracking-tighter uppercase">Mock<span className="text-blue-600">Trade</span></h1>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <input type="text" placeholder="ID" className="w-full p-5 bg-slate-50 rounded-2xl border border-slate-100 font-bold outline-none" value={loginForm.loginId} onChange={e => setLoginForm({...loginForm, loginId: e.target.value})} />
-            <input type="password" placeholder="PW" className="w-full p-5 bg-slate-50 rounded-2xl border border-slate-100 font-bold outline-none" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} />
-            <button className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xl hover:bg-blue-700 transition">LOGIN</button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-[#f8fafc] flex font-sans text-slate-900 text-left">
-      {/* Sidebar */}
-      <aside className="w-72 bg-white border-r border-slate-100 p-8 sticky top-0 h-screen hidden lg:flex flex-col">
-        <div className="flex items-center gap-3 mb-16 text-blue-600 font-black text-2xl tracking-tighter uppercase">
-          <TrendingUp size={32} /> M-PRO
-        </div>
-        <nav className="flex-1 space-y-2">
-          <NavItem active={activeTab === 'market'} icon={<LayoutDashboard size={20}/>} label="마켓보드" onClick={() => setActiveTab('market')} />
-          <NavItem active={activeTab === 'portfolio'} icon={<PieChart size={20}/>} label="포트폴리오" onClick={() => setActiveTab('portfolio')} />
-          <NavItem active={activeTab === 'community'} icon={<MessageSquare size={20}/>} label="커뮤니티" onClick={() => setActiveTab('community')} />
-        </nav>
-        <div className="mt-auto p-6 bg-slate-50 rounded-3xl border border-slate-100 text-left">
-          <p className="text-sm font-black text-slate-800 mb-1">{user?.name} 님</p>
-          <div className="flex items-center gap-1.5 mb-4">
-             <ShieldCheck size={12} className="text-blue-500" />
-             <span className="text-[10px] text-blue-500 font-black uppercase tracking-widest">Certified Yield: {myTotalYield}%</span>
-          </div>
-          <button onClick={handleLogout} className="w-full py-3 bg-white border border-slate-200 text-[10px] font-black text-slate-400 rounded-xl hover:text-red-500 transition-colors uppercase">로그아웃</button>
-        </div>
-      </aside>
-
-      <main className="flex-1 p-8 lg:p-12 overflow-y-auto">
-        <header className="flex justify-between items-center mb-10 text-left">
-          <div className="text-left">
-            <h1 className="text-5xl font-black tracking-tighter leading-none">
-                {activeTab === 'market' ? 'Market Watch' : activeTab === 'portfolio' ? 'My Assets' : 'Insights'}
-            </h1>
-            <p className="text-slate-400 text-sm font-bold mt-3 flex items-center gap-2">
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> {lastUpdated.toLocaleTimeString()} Sync
-            </p>
-          </div>
-          <div className="flex gap-4">
-             {activeTab === 'community' && (
-                 <button 
-                    onClick={() => setIsPostModalOpen(true)}
-                    className="flex items-center gap-2 bg-slate-900 text-white px-6 py-4 rounded-2xl font-black hover:bg-slate-800 transition"
-                 >
-                    <PenLine size={20} /> 분석글 작성
-                 </button>
-             )}
-             <div className="bg-white p-4 px-8 rounded-2xl border border-slate-100 shadow-sm text-right">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none text-left">Balance</p>
-                <p className="text-2xl font-black text-slate-900 leading-none">{user?.balance?.toLocaleString()} <span className="text-xs text-slate-300">KRW</span></p>
-             </div>
-          </div>
-        </header>
-
-        {activeTab === 'market' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 animate-in fade-in duration-700">
-            {stocks.map(s => <StockCard key={s.stockCode} stock={s} onTrade={type => setTradeModal({ show: true, stock: s, type })} />)}
-          </div>
-        )}
-
-        {activeTab === 'portfolio' && (
-          <div className="space-y-8 animate-in fade-in duration-700">
-             <div className="grid grid-cols-3 gap-6 text-left">
-                <Stat label="총 평가액" value={`${totalEvalAmt.toLocaleString()}원`} icon={<Wallet size={20}/>} />
-                <Stat label="인증 수익률" value={`${myTotalYield}%`} isRate rate={parseFloat(myTotalYield)} icon={<ShieldCheck size={20}/>} />
-                <Stat label="보유 종목" value={`${portfolio.length}종목`} icon={<PieChart size={20}/>} />
-             </div>
-             <div className="bg-white rounded-[3rem] border border-slate-100 overflow-hidden shadow-sm">
-                <table className="w-full text-left">
-                   <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                      <tr>
-                         <th className="px-10 py-6">Asset</th>
-                         <th className="px-10 py-6 text-right">Avg.Price</th>
-                         <th className="px-10 py-6 text-right">Quantity</th>
-                         <th className="px-10 py-6 text-right">Yield</th>
-                         <th className="px-10 py-6 text-center">Trade</th>
-                      </tr>
-                   </thead>
-                   <tbody className="divide-y divide-slate-100 text-left">
-                      {portfolio.map(p => {
-                         const s = stocks.find(st => st.stockCode === p.stockCode);
-                         const curP = s?.currentPrice || p.averagePrice;
-                         const yields = ((curP - p.averagePrice) / p.averagePrice * 100).toFixed(2);
-                         const isPlus = parseFloat(yields) >= 0;
-                         return (
-                            <tr key={p.stockCode} className="hover:bg-slate-50/50 transition-colors">
-                               <td className="px-10 py-7 font-black text-slate-800 text-left">{p.stockName} <span className="ml-2 text-[10px] text-slate-300 font-bold">{p.stockCode}</span></td>
-                               <td className="px-10 py-7 text-right font-bold text-slate-500">{p.averagePrice.toLocaleString()}</td>
-                               <td className="px-10 py-7 text-right font-black text-lg">{p.quantity.toLocaleString()}</td>
-                               <td className={`px-10 py-7 text-right font-black text-lg ${isPlus ? 'text-rose-500' : 'text-blue-600'}`}>{isPlus ? '▲' : '▼'} {Math.abs(yields)}%</td>
-                               <td className="px-10 py-7 text-center">
-                                  <button onClick={() => setTradeModal({ show: true, stock: s || p, type: 'sell' })} className="px-5 py-2 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase">Sell</button>
-                               </td>
-                            </tr>
-                         );
-                      })}
-                   </tbody>
-                </table>
-             </div>
-          </div>
-        )}
-
-        {activeTab === 'community' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-700">
-             {posts.map(post => {
-                 const isLiked = post.likedUsers?.includes(user.loginId);
-                 return (
-                 <div 
-                    key={post.postId} 
-                    onClick={() => fetchPostDetail(post.postId)}
-                    className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-lg transition-all text-left cursor-pointer group"
-                 >
-                    <div className="flex justify-between items-start mb-6 text-left">
-                        <div className="flex items-center gap-3 text-left">
-                            <div className="w-10 h-10 bg-slate-900 text-white rounded-full flex items-center justify-center font-black text-xs">{post.author[0]}</div>
-                            <div className="text-left">
-                                <p className="font-black text-slate-800">{post.author}</p>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase">{post.stockName} 분석</p>
-                            </div>
-                        </div>
-                        <div className={`px-4 py-1.5 rounded-full text-[10px] font-black border flex items-center gap-1.5 ${post.yield >= 0 ? 'bg-rose-50 text-rose-500 border-rose-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
-                           <ShieldCheck size={12} /> 인증 수익률 {post.yield}%
-                        </div>
-                    </div>
-                    <h3 className="text-xl font-black text-slate-900 mb-3 tracking-tighter leading-tight group-hover:text-blue-600 transition-colors">{post.title}</h3>
-                    <p className="text-slate-500 text-sm leading-relaxed mb-6 line-clamp-2 font-medium">{post.content}</p>
-                    
-                    <div className="flex items-center gap-6 border-t border-slate-50 pt-6">
-                       <div className="flex items-center gap-1.5 text-slate-400 font-bold text-xs">
-                           <Eye size={14} /> {post.viewCount || 0}
-                       </div>
-                       <button 
-                          onClick={(e) => handleLike(post.postId, e)}
-                          className={`flex items-center gap-1.5 font-bold text-xs transition-colors ${isLiked ? 'text-blue-600' : 'text-slate-400 hover:text-blue-500'}`}
-                       >
-                           <ThumbsUp size={14} fill={isLiked ? "currentColor" : "none"} /> {post.likedUsers?.length || 0}
-                       </button>
-                       <div className="flex items-center gap-1.5 text-slate-400 font-bold text-xs">
-                           <MessageSquare size={14} /> {post.comments?.length || 0}
-                       </div>
-                       <div className="ml-auto flex items-center gap-1 text-slate-300 font-bold text-[10px] uppercase tracking-wider">
-                           <BarChart4 size={14}/> {post.stockCode}
-                       </div>
-                    </div>
-                 </div>
-                 );
-             })}
-          </div>
-        )}
-      </main>
-
-      {/* 분석글 작성 모달 */}
-      {isPostModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 text-left">
-            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsPostModalOpen(false)} />
-            <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-300 text-left">
-                <div className="p-10 bg-slate-900 text-white text-left">
-                    <h2 className="text-3xl font-black tracking-tighter mb-2">분석글 작성</h2>
-                    <p className="text-slate-400 font-bold">현재 사용자님의 수익률이 게시글에 자동으로 인증되어 포함됩니다.</p>
-                </div>
-                <form onSubmit={handleSavePost} className="p-10 space-y-6 text-left">
-                    <div className="grid grid-cols-2 gap-4 text-left">
-                        <div className="space-y-2 text-left">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">종목 선택</label>
-                            <select 
-                                className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold outline-none"
-                                value={postForm.stockName}
-                                onChange={(e) => {
-                                    const s = stocks.find(st => st.stockName === e.target.value);
-                                    setPostForm({...postForm, stockName: e.target.value, stockCode: s?.stockCode || ''});
-                                }}
-                            >
-                                <option value="">종목을 선택하세요</option>
-                                {stocks.map(s => <option key={s.stockCode} value={s.stockName}>{s.stockName}</option>)}
-                            </select>
-                        </div>
-                        <div className="space-y-2 text-left">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">인증 수익률</label>
-                            <div className={`w-full p-4 rounded-2xl border font-black flex items-center gap-2 ${parseFloat(myTotalYield) >= 0 ? 'bg-rose-50 border-rose-100 text-rose-500' : 'bg-blue-50 border-blue-100 text-blue-600'}`}>
-                               <ShieldCheck size={16} /> {myTotalYield}% (실시간 인증됨)
-                            </div>
-                        </div>
-                    </div>
-                    <div className="space-y-2 text-left">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">제목</label>
-                        <input type="text" placeholder="분석글 제목을 입력하세요" className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold outline-none focus:ring-4 focus:ring-blue-600/5 transition-all text-left" value={postForm.title} onChange={e => setPostForm({...postForm, title: e.target.value})} required />
-                    </div>
-                    <div className="space-y-2 text-left">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 text-left">내용</label>
-                        <textarea rows="5" placeholder="종목에 대한 본인의 견해를 자유롭게 작성하세요..." className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold outline-none focus:ring-4 focus:ring-blue-600/5 transition-all resize-none text-left" value={postForm.content} onChange={e => setPostForm({...postForm, content: e.target.value})} required></textarea>
-                    </div>
-                    <div className="flex gap-4">
-                        <button type="button" onClick={() => setIsPostModalOpen(false)} className="flex-1 py-5 bg-slate-100 text-slate-400 rounded-2xl font-black text-lg hover:bg-slate-200 transition">취소</button>
-                        <button type="submit" className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black text-xl shadow-xl shadow-blue-200 hover:bg-blue-700 transition">인증 글 올리기</button>
-                    </div>
-                </form>
-            </div>
-          </div>
-      )}
-
-      {/* 게시글 상세보기 모달 */}
-      {selectedPost && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 text-left">
-              <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setSelectedPost(null)} />
-              <div className="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl relative z-10 overflow-hidden animate-in slide-in-from-bottom-10 duration-500 flex flex-col max-h-[90vh]">
-                  {/* 상단 헤더 */}
-                  <div className="p-8 border-b border-slate-100 flex justify-between items-start">
-                      <div className="flex items-center gap-4 text-left">
-                          <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center font-black text-slate-400">{selectedPost.author[0]}</div>
-                          <div className="text-left">
-                              <h3 className="text-xl font-black text-slate-900">{selectedPost.title}</h3>
-                              <p className="text-sm font-bold text-slate-400 tracking-tight">{selectedPost.author} • {selectedPost.stockName} ({selectedPost.stockCode})</p>
-                          </div>
-                      </div>
-                      <button onClick={() => setSelectedPost(null)} className="p-2 hover:bg-slate-50 rounded-full transition-colors"><X size={24}/></button>
-                  </div>
-
-                  {/* 본문 내용 (스크롤 가능) */}
-                  <div className="flex-1 overflow-y-auto p-8 space-y-8">
-                      <div className="flex items-center gap-3">
-                          <div className={`px-4 py-2 rounded-2xl font-black text-sm flex items-center gap-2 ${selectedPost.yield >= 0 ? 'bg-rose-50 text-rose-500' : 'bg-blue-50 text-blue-600'}`}>
-                             <ShieldCheck size={18} /> 인증된 수익률: {selectedPost.yield}%
-                          </div>
-                          <div className="px-4 py-2 bg-slate-50 rounded-2xl font-black text-sm text-slate-500 flex items-center gap-2">
-                             <Eye size={18} /> 조회수 {selectedPost.viewCount}
-                          </div>
-                          <button 
-                             onClick={(e) => handleLike(selectedPost.postId, e)}
-                             className={`px-4 py-2 rounded-2xl font-black text-sm flex items-center gap-2 transition-all ${selectedPost.likedUsers?.includes(user.loginId) ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-blue-50 hover:text-blue-600'}`}
-                          >
-                             <ThumbsUp size={18} fill={selectedPost.likedUsers?.includes(user.loginId) ? "currentColor" : "none"} /> {selectedPost.likedUsers?.length || 0}
-                          </button>
-                      </div>
-
-                      <p className="text-slate-700 text-lg leading-relaxed whitespace-pre-wrap font-medium border-l-4 border-slate-100 pl-6">
-                          {selectedPost.content}
-                      </p>
-
-                      {/* 댓글 섹션 */}
-                      <div className="space-y-6 pt-8 border-t border-slate-100">
-                          <h4 className="font-black text-slate-900 flex items-center gap-2">
-                             <MessageSquare size={20} /> 댓글 ({selectedPost.comments?.length || 0})
-                          </h4>
-                          
-                          <div className="space-y-4">
-                              {selectedPost.comments?.map((comment, idx) => (
-                                  <div key={idx} className="bg-slate-50 p-5 rounded-2xl text-left border border-slate-100/50">
-                                      <div className="flex justify-between mb-2">
-                                          <span className="font-black text-slate-800 text-sm">{comment.author}</span>
-                                          <span className="text-[10px] font-bold text-slate-300 flex items-center gap-1"><Clock size={10}/> {comment.createdAt}</span>
-                                      </div>
-                                      <p className="text-slate-600 text-sm leading-relaxed">{comment.content}</p>
-                                  </div>
-                              ))}
-                              {(!selectedPost.comments || selectedPost.comments.length === 0) && (
-                                  <p className="text-center py-10 text-slate-300 font-bold italic uppercase tracking-widest text-xs">No comments yet.</p>
-                              )}
-                          </div>
-                      </div>
-                  </div>
-
-                  {/* 댓글 작성란 */}
-                  <form onSubmit={handleAddComment} className="p-6 bg-slate-50 border-t border-slate-100 flex gap-4">
-                      <input 
-                        type="text" 
-                        placeholder="분석에 대한 의견을 남겨주세요..." 
-                        className="flex-1 p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-blue-600/5 transition-all text-sm"
-                        value={commentInput}
-                        onChange={e => setCommentInput(e.target.value)}
-                      />
-                      <button className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black hover:bg-blue-700 transition flex items-center gap-2 active:scale-95 shadow-lg shadow-blue-600/20">
-                          <Send size={18} /> 전송
-                      </button>
-                  </form>
-              </div>
-          </div>
-      )}
-
-      {/* Trade Modal */}
-      {tradeModal.show && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 text-left">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setTradeModal({...tradeModal, show: false})} />
-          <div className="bg-white w-full max-w-md rounded-[3.5rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-300 text-left">
-            <div className={`p-10 ${tradeModal.type === 'buy' ? 'bg-rose-500 text-white' : 'bg-blue-600 text-white'} text-left`}>
-              <div className="flex justify-between items-start mb-6">
-                <div className="text-left">
-                  <h3 className="text-3xl font-black uppercase tracking-tighter">{tradeModal.type} Order</h3>
-                  <p className="font-bold text-white/70">{tradeModal.stock.stockName} ({tradeModal.stock.stockCode})</p>
-                </div>
-                <X className="cursor-pointer" onClick={() => setTradeModal({...tradeModal, show: false})} />
-              </div>
-              <div className="bg-white/10 p-6 rounded-3xl flex justify-between items-center text-left">
-                <p className="text-[10px] font-black uppercase tracking-widest text-white/60 leading-none">Price</p>
-                <p className="text-4xl font-black leading-none">{tradeModal.stock.currentPrice?.toLocaleString()} <span className="text-sm">원</span></p>
-              </div>
-            </div>
-            <div className="p-10 space-y-8 text-left">
-              <div className="text-left">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4 ml-1">Quantity</label>
-                <div className="flex gap-4 items-center">
-                  <button onClick={() => setTradeQty(Math.max(1, tradeQty-1))} className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-2xl font-black text-2xl hover:bg-slate-100 shadow-sm transition-all">-</button>
-                  <input type="number" value={tradeQty} onChange={e => setTradeQty(parseInt(e.target.value)||1)} className="flex-1 text-center text-4xl font-black outline-none bg-transparent" />
-                  <button onClick={() => setTradeQty(tradeQty+1)} className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-2xl font-black text-2xl hover:bg-slate-100 shadow-sm transition-all">+</button>
-                </div>
-              </div>
-              <div className="bg-slate-50/80 p-8 rounded-[2rem] flex justify-between items-center border border-slate-100">
-                <span className="font-black text-slate-400 uppercase text-[10px] tracking-widest leading-none">Total</span>
-                <span className="text-2xl font-black text-slate-900 leading-none">{(tradeModal.stock.currentPrice * tradeQty).toLocaleString()}원</span>
-              </div>
-              <button onClick={handleTrade} className={`w-full py-6 rounded-[2.5rem] font-black text-xl text-white shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-3 ${tradeModal.type === 'buy' ? 'bg-rose-500 shadow-rose-200' : 'bg-blue-600 shadow-blue-200'}`}>
-                 {tradeModal.type === 'buy' ? '매수 주문 확정' : '매도 주문 확정'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+  if (loading) return (
+    <div className="flex flex-col h-screen items-center justify-center gap-4 bg-gray-50">
+      <RefreshCw className="animate-spin text-blue-600" size={48} />
+      <div className="font-bold text-gray-600">서버와 연결 확인 중...</div>
     </div>
   );
-}
 
-// --- [컴포넌트] ---
-
-const NavItem = ({ icon, label, active, onClick }) => (
-  <button onClick={onClick} className={`w-full flex items-center gap-4 px-6 py-5 rounded-[1.5rem] font-black transition-all duration-300 group ${active ? 'bg-blue-600 text-white shadow-2xl shadow-blue-100 scale-[1.03]' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-800'}`}>
-    {icon} <span className="text-[15px] tracking-tight">{label}</span>
-  </button>
-);
-
-const Stat = ({ label, value, isRate, rate, icon }) => (
-  <div className="bg-white p-8 rounded-[2.8rem] border border-slate-100 text-left flex justify-between items-center group hover:shadow-lg transition-all">
-    <div className="text-left">
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 leading-none">{label}</p>
-      <p className={`text-3xl font-black leading-none ${isRate ? (rate >= 0 ? 'text-rose-500' : 'text-blue-600') : 'text-slate-900'}`}>{value}</p>
+  if (serverError) return (
+    <div className="flex flex-col h-screen items-center justify-center gap-6 bg-red-50 p-6 text-center">
+      <AlertCircle className="text-red-500" size={64} />
+      <div className="space-y-2">
+        <h2 className="text-2xl font-bold text-red-700">백엔드 서버 연결 오류</h2>
+        <p className="text-red-600 max-w-md mx-auto">서버(http://localhost:8080)가 실행 중인지 확인해 주세요.</p>
+      </div>
+      <button onClick={checkAuth} className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition flex items-center gap-2">
+        <RefreshCw size={20} /> 다시 연결 시도
+      </button>
     </div>
-    <div className="w-14 h-14 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center group-hover:bg-blue-50 group-hover:text-blue-600 transition-all shadow-inner">{icon}</div>
-  </div>
-);
+  );
 
-const StockCard = ({ stock, onTrade }) => {
-  const rate = parseFloat(stock.changeRate) || 0;
-  const isUp = rate > 0;
-  const isDown = rate < 0;
+  if (!user) return <AuthPage onLoginSuccess={checkAuth} />;
+
   return (
-    <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm flex justify-between items-center hover:shadow-2xl hover:-translate-y-1 transition-all text-left group">
-      <div className="flex items-center gap-5 text-left leading-none">
-        <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center font-black text-2xl transition-all shadow-sm ${isUp ? 'bg-rose-500 text-rose-500' : isDown ? 'bg-blue-600 text-white' : 'bg-slate-200 text-white'}`}>{stock.stockName?.[0] || '?'}</div>
-        <div className="text-left">
-          <p className="font-black text-slate-900 text-xl leading-none mb-2">{stock.stockName}</p>
-          <div className={`text-xs font-black ${isUp ? 'text-rose-500' : isDown ? 'text-blue-600' : 'text-slate-400'}`}>
-            {isUp ? '▲' : isDown ? '▼' : '-'} {Math.abs(rate).toFixed(2)}%
+    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
+      <nav className="bg-white border-b sticky top-0 z-10 px-6 py-4 flex justify-between items-center shadow-sm">
+        <div className="flex items-center gap-8">
+          <h1 className="text-xl font-bold text-blue-600 flex items-center gap-2 cursor-pointer" onClick={() => setCurrentPage('stocks')}>
+            <TrendingUp size={24} /> MockInvest
+          </h1>
+          <div className="flex gap-4">
+            {['stocks', 'portfolio', 'board', 'missions'].map(page => (
+              <button 
+                key={page}
+                onClick={() => {
+                  setCurrentPage(page);
+                  if(page === 'missions') fetchMissions(user.loginId);
+                  if(page === 'portfolio') fetchMyTrades(user.loginId);
+                }}
+                className={`px-3 py-1 rounded-md transition ${currentPage === page ? 'bg-blue-50 text-blue-600 font-bold' : 'text-gray-500 hover:bg-gray-100'}`}
+              >
+                {page.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold transition-all duration-500 ${isLive ? 'bg-green-100 text-green-600 scale-105' : 'bg-gray-100 text-gray-400 opacity-50'}`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+            LIVE MARKET
           </div>
         </div>
-      </div>
-      <div className="text-right flex flex-col items-end gap-3 text-left">
-        <p className="font-black text-slate-900 text-2xl tracking-tighter leading-none">{stock.currentPrice?.toLocaleString()}<span className="text-[10px] ml-0.5 font-bold text-slate-300 uppercase">원</span></p>
-        <div className="flex gap-2">
-          <button onClick={() => onTrade('buy')} className="w-10 h-10 bg-rose-50 text-rose-500 rounded-xl flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all shadow-sm"><ShoppingCart size={18} /></button>
-          <button onClick={() => onTrade('sell')} className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all shadow-sm"><DollarSign size={18} /></button>
+
+        <div className="flex items-center gap-4">
+          {/* 전체 수익률 표시 영역 */}
+          <div className={`hidden sm:flex items-center gap-2 px-4 py-2 rounded-full border transition-all duration-500 ${Number(totalYield) >= 0 ? 'bg-red-50 border-red-100 text-red-600' : 'bg-blue-50 border-blue-100 text-blue-600'} ${isLive ? 'scale-105' : 'scale-100'}`}>
+            <BarChart3 size={16} />
+            <span className="text-xs font-black uppercase tracking-wider">Yield</span>
+            <span className="font-black text-sm">{totalYield > 0 ? '+' : ''}{totalYield}%</span>
+          </div>
+
+          {/* 지갑 잔액 영역 */}
+          <div onClick={checkAuth} className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-full cursor-pointer hover:bg-gray-200 transition border border-gray-200 group">
+            <Wallet size={16} className="text-gray-600" />
+            <span className="font-bold text-gray-700 text-sm">{user.balance?.toLocaleString() || 0} 원</span>
+            <RefreshCw size={12} className="text-gray-400 group-hover:rotate-180 transition-transform duration-500" />
+          </div>
+          
+          <div className="flex items-center gap-3 border-l pl-4">
+            <span className="text-sm font-medium">{user.name || user.loginId}님</span>
+            <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 transition">
+              <LogOut size={20} />
+            </button>
+          </div>
         </div>
+      </nav>
+
+      <main className="max-w-6xl mx-auto p-8">
+        {currentPage === 'stocks' && <StockDashboard stocks={stocks} user={user} onTradeSuccess={() => {checkAuth(); fetchMyTrades(user.loginId);}} />}
+        {currentPage === 'portfolio' && <Portfolio trades={myTrades} stocks={stocks} />}
+        {currentPage === 'board' && <CommunityBoard posts={posts} user={user} stocks={stocks} myTrades={myTrades} onPostSuccess={fetchPosts} />}
+        {currentPage === 'missions' && <MissionCenter missions={missions} user={user} onClaimSuccess={() => {checkAuth(); fetchMissions(user.loginId);}} />}
+      </main>
+    </div>
+  );
+};
+
+// --- 유틸리티 함수 ---
+const maskId = (id) => {
+  if (!id) return "";
+  if (id.length <= 3) return id[0] + "*".repeat(id.length - 1);
+  return id.substring(0, 3) + "*".repeat(Math.max(3, id.length - 3));
+};
+
+const calculateTotalYield = (trades, stocks) => {
+  if (!trades || trades.length === 0) return "0.00";
+  let totalCost = 0;
+  let totalValue = 0;
+  
+  trades.forEach(trade => {
+    const stock = stocks.find(s => s.stockCode === trade.stockCode);
+    const currentPrice = stock?.currentPrice || trade.averagePrice;
+    totalCost += trade.averagePrice * trade.quantity;
+    totalValue += currentPrice * trade.quantity;
+  });
+
+  if (totalCost === 0) return "0.00";
+  return (((totalValue - totalCost) / totalCost) * 100).toFixed(2);
+};
+
+// --- 서브 컴포넌트들 ---
+
+const AuthPage = ({ onLoginSuccess }) => {
+  const [isRegister, setIsRegister] = useState(false);
+  const [form, setForm] = useState({ loginId: '', password: '' });
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      if (isRegister) {
+        await api.post('/user/register', { loginId: form.loginId, password: form.password });
+        alert("회원가입 성공! 로그인을 진행해주세요.");
+        setIsRegister(false);
+      } else {
+        await api.post('/user/login', { loginId: form.loginId, password: form.password });
+        onLoginSuccess();
+      }
+    } catch (err) {
+      alert(err.response?.data || "요청에 실패했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="h-screen flex items-center justify-center bg-blue-50">
+      <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-w-md">
+        <h2 className="text-3xl font-bold text-center mb-8 text-blue-600">{isRegister ? "계정 생성" : "MockInvest 로그인"}</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-semibold mb-1">아이디</label>
+            <input className="w-full border rounded-lg p-2.5 outline-blue-500" value={form.loginId} onChange={e => setForm({...form, loginId: e.target.value})} required />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-1">비밀번호</label>
+            <input type="password" className="w-full border rounded-lg p-2.5 outline-blue-500" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required />
+          </div>
+          <button type="submit" disabled={loading} className={`w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition mt-6 flex items-center justify-center ${loading ? 'opacity-50' : ''}`}>
+            {loading ? <RefreshCw className="animate-spin mr-2" size={18} /> : null}
+            {isRegister ? "가입하기" : "로그인"}
+          </button>
+        </form>
+        <button className="w-full mt-4 text-sm text-gray-500 hover:underline" onClick={() => setIsRegister(!isRegister)}>
+          {isRegister ? "이미 계정이 있으신가요?" : "아직 회원이 아니신가요? 가입하기"}
+        </button>
       </div>
     </div>
   );
 };
+
+const StockDashboard = ({ stocks, user, onTradeSuccess }) => {
+  const [selectedStock, setSelectedStock] = useState(null);
+  const [qty, setQty] = useState(1);
+  const [trading, setTrading] = useState(false);
+
+  const handleTrade = async (type) => {
+    if(!selectedStock || trading) return;
+    setTrading(true);
+    try {
+      await api.post(`/trade/${type}`, {
+        loginId: user.loginId,
+        stockCode: selectedStock.stockCode,
+        quantity: qty
+      });
+      alert(`${selectedStock.stockName} ${qty}주 ${type === 'buy' ? '매수' : '매도'} 완료!`);
+      onTradeSuccess();
+    } catch (e) {
+      alert(e.response?.data || "거래 실패");
+    } finally {
+      setTrading(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div className="md:col-span-2 space-y-4">
+        <h3 className="text-xl font-bold flex items-center gap-2 mb-4"><TrendingUp className="text-blue-500" /> 실시간 시세 (TOP 40)</h3>
+        {stocks.length === 0 ? (
+          <div className="bg-white p-20 text-center border rounded-2xl text-gray-400">데이터를 불러오는 중입니다...</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {stocks.map(stock => (
+              <div key={stock.stockCode} onClick={() => setSelectedStock(stock)} className={`p-4 rounded-xl border transition cursor-pointer hover:shadow-md ${selectedStock?.stockCode === stock.stockCode ? 'border-blue-500 bg-blue-50' : 'bg-white'}`}>
+                <div className="flex justify-between items-start mb-2">
+                  <span className="font-bold text-lg">{stock.stockName}</span>
+                  <span className="text-xs text-gray-400 font-mono">{stock.stockCode}</span>
+                </div>
+                <div className="flex justify-between items-end">
+                  <span className="text-xl font-semibold">{stock.currentPrice?.toLocaleString()} 원</span>
+                  <span className={`flex items-center text-sm font-bold ${stock.changeRate >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
+                    {stock.changeRate >= 0 ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                    {Math.abs(stock.changeRate || 0)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white p-6 rounded-2xl border h-fit sticky top-24 shadow-sm">
+        <h3 className="text-lg font-bold mb-6 border-b pb-4">주식 주문</h3>
+        {selectedStock ? (
+          <div className="space-y-6">
+            <div>
+              <p className="text-sm text-gray-500 mb-1">선택된 종목</p>
+              <p className="text-xl font-bold">{selectedStock.stockName}</p>
+              <p className="text-2xl font-bold text-blue-600 mt-1">{selectedStock.currentPrice?.toLocaleString()} 원</p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-500 block mb-2">수량 설정</label>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setQty(Math.max(1, qty-1))} className="w-10 h-10 border rounded-lg hover:bg-gray-50">-</button>
+                <input type="number" value={qty} onChange={e => setQty(Math.max(1, Number(e.target.value)))} className="flex-1 border rounded-lg h-10 text-center font-bold" />
+                <button onClick={() => setQty(qty+1)} className="w-10 h-10 border rounded-lg hover:bg-gray-50">+</button>
+              </div>
+            </div>
+            <div className="pt-4 border-t space-y-3">
+              <div className="flex justify-between text-sm">
+                <span>총 주문금액</span>
+                <span className="font-bold">{(selectedStock.currentPrice * qty).toLocaleString()} 원</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => handleTrade('buy')} disabled={trading} className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold hover:bg-red-600 transition disabled:opacity-50">매수</button>
+                <button onClick={() => handleTrade('sell')} disabled={trading} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition disabled:opacity-50">매도</button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="py-20 text-center text-gray-400">
+            <TrendingUp size={48} className="mx-auto mb-4 opacity-20" />
+            <p>거래할 종목을 선택하세요</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const CommunityBoard = ({ posts, user, stocks, myTrades, onPostSuccess }) => {
+  const [newPost, setNewPost] = useState({ title: '', content: '' });
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // 현재 사용자의 실시간 총 수익률 계산
+  const currentTotalYield = calculateTotalYield(myTrades, stocks);
+
+  const handlePostSubmit = async () => {
+    if(!newPost.title || !newPost.content || submitting) return;
+    setSubmitting(true);
+    try {
+      // 게시글 작성 시 현재 수익률(yield) 정보를 포함하여 전송
+      await api.post('/posts', { 
+        ...newPost, 
+        author: user.loginId,
+        yield: parseFloat(currentTotalYield) 
+      });
+      setNewPost({ title: '', content: '' });
+      onPostSuccess();
+      alert("투자 인사이트 게시글이 등록되었습니다!");
+    } catch (e) { alert("등록 실패"); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleLike = async (postId) => {
+    try {
+      await api.post(`/posts/${postId}/like`, { loginId: user.loginId });
+      onPostSuccess();
+      const updated = await api.get(`/posts/${postId}`);
+      setSelectedPost(updated.data);
+    } catch (e) { alert("좋아요 실패"); }
+  };
+
+  const handleComment = async (postId) => {
+    if(!comment) return;
+    try {
+      await api.post(`/posts/${postId}/comments`, { author: user.loginId, content: comment });
+      setComment("");
+      onPostSuccess();
+      const updated = await api.get(`/posts/${postId}`);
+      setSelectedPost(updated.data);
+    } catch (e) { alert("댓글 실패"); }
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="space-y-4">
+        <div className="bg-white p-6 rounded-2xl border mb-6 shadow-sm border-blue-100">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold flex items-center gap-2 text-blue-600"><Send size={18} /> 투자 인사이트 공유</h3>
+            <div className="flex items-center gap-2 bg-blue-50 px-3 py-1 rounded-full border border-blue-100">
+              <Award size={14} className="text-blue-500" />
+              <span className="text-[10px] font-bold text-blue-600 uppercase tracking-tight">나의 실적: {currentTotalYield}%</span>
+            </div>
+          </div>
+          <input placeholder="제목을 입력하세요" value={newPost.title} onChange={e => setNewPost({...newPost, title: e.target.value})} className="w-full border-b py-2 mb-2 outline-none text-lg font-semibold" />
+          <textarea placeholder="현재 시장에 대한 생각이나 투자 전략을 공유해보세요..." value={newPost.content} onChange={e => setNewPost({...newPost, content: e.target.value})} className="w-full h-24 p-2 text-sm outline-none resize-none bg-gray-50 rounded-lg" />
+          <button onClick={handlePostSubmit} disabled={submitting} className="w-full bg-blue-600 text-white py-2.5 rounded-xl text-sm font-bold mt-3 hover:bg-blue-700 transition disabled:opacity-50">
+            {submitting ? "등록 중..." : "인사이트 등록"}
+          </button>
+        </div>
+        
+        <h3 className="font-bold text-lg mb-4">커뮤니티 피드</h3>
+        {posts.map(post => (
+          <div key={post.postId} onClick={() => setSelectedPost(post)} className={`bg-white p-5 rounded-2xl border cursor-pointer hover:border-blue-300 transition shadow-sm ${selectedPost?.postId === post.postId ? 'border-blue-500 ring-2 ring-blue-50' : ''}`}>
+            <div className="flex justify-between items-start mb-2">
+              <h4 className="font-bold text-lg">{post.title}</h4>
+              <div className="flex flex-col items-end gap-1">
+                <span className="text-[10px] font-mono bg-gray-100 px-2 py-0.5 rounded text-gray-500">{maskId(post.author)}</span>
+                {post.yield !== undefined && (
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 ${post.yield >= 0 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
+                    <Activity size={10} /> {post.yield > 0 ? '+' : ''}{post.yield}%
+                  </span>
+                )}
+              </div>
+            </div>
+            <p className="text-gray-600 text-sm line-clamp-2 mb-4">{post.content}</p>
+            <div className="flex gap-4 text-xs text-gray-400">
+              <span className="flex items-center gap-1"><ThumbsUp size={14} /> {post.likedUsers?.length || 0}</span>
+              <span className="flex items-center gap-1"><MessageSquare size={14} /> {post.comments?.length || 0}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-2xl border p-6 h-fit sticky top-24 shadow-sm min-h-[400px]">
+        {selectedPost ? (
+          <div className="space-y-6">
+            <div className="border-b pb-4">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
+                    {selectedPost.author.substring(0, 1).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-gray-800">{maskId(selectedPost.author)}</div>
+                    {selectedPost.yield !== undefined && (
+                      <div className={`text-[10px] font-bold flex items-center gap-1 ${selectedPost.yield >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
+                         누적 수익률 {selectedPost.yield > 0 ? '+' : ''}{selectedPost.yield}%
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); handleLike(selectedPost.postId); }} className={`flex items-center gap-1 text-sm transition ${selectedPost.likedUsers?.includes(user.loginId) ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-blue-600'}`}>
+                  <ThumbsUp size={16} /> {selectedPost.likedUsers?.includes(user.loginId) ? '추천됨' : '추천하기'}
+                </button>
+              </div>
+              <h2 className="text-2xl font-bold mb-3">{selectedPost.title}</h2>
+              <p className="text-gray-700 leading-relaxed whitespace-pre-wrap bg-gray-50 p-4 rounded-xl">{selectedPost.content}</p>
+            </div>
+            <div className="space-y-4">
+              <h4 className="font-bold flex items-center gap-2"><MessageSquare size={16} /> 댓글 {selectedPost.comments?.length || 0}</h4>
+              <div className="flex gap-2">
+                <input value={comment} onChange={e => setComment(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleComment(selectedPost.postId)} placeholder="댓글을 입력하세요..." className="flex-1 border rounded-xl px-4 py-2.5 text-sm outline-blue-500 bg-gray-50 focus:bg-white transition" />
+                <button onClick={() => handleComment(selectedPost.postId)} className="bg-gray-800 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-black transition">등록</button>
+              </div>
+              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                {selectedPost.comments?.map((c, i) => (
+                  <div key={i} className="bg-gray-50 p-3 rounded-xl text-sm border border-gray-100">
+                    <div className="flex justify-between mb-1">
+                      <span className="font-bold text-blue-600">{maskId(c.author)}</span>
+                      <span className="text-[10px] text-gray-400">{c.createdAt}</span>
+                    </div>
+                    <p className="text-gray-700">{c.content}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
+            <MessageSquare size={64} className="opacity-10 mb-4" />
+            <p className="font-medium">게시글을 선택하여 전문가의 인사이트를 확인하세요</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Portfolio = ({ trades, stocks }) => {
+  const totalYield = calculateTotalYield(trades, stocks);
+  
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-end mb-2">
+        <div>
+          <h3 className="text-xl font-bold flex items-center gap-2"><Wallet className="text-green-500" /> 나의 보유 주식</h3>
+          <p className="text-sm text-gray-500 mt-1">현재 총 누적 수익률: <span className={`font-bold ${Number(totalYield) >= 0 ? 'text-red-500' : 'text-blue-500'}`}>{totalYield}%</span></p>
+        </div>
+        <span className="text-sm text-gray-500 italic">5초마다 현재가가 자동 갱신됩니다.</span>
+      </div>
+      {trades.length > 0 ? (
+        <div className="overflow-hidden bg-white border rounded-2xl shadow-sm">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase">
+              <tr>
+                <th className="px-6 py-4">종목명</th>
+                <th className="px-6 py-4 text-right">보유수량</th>
+                <th className="px-6 py-4 text-right">평단가</th>
+                <th className="px-6 py-4 text-right bg-blue-50">현재가 (Live)</th>
+                <th className="px-6 py-4 text-right">수익률</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {trades.map(trade => {
+                const stock = stocks.find(s => s.stockCode === trade.stockCode);
+                const currentPrice = stock?.currentPrice || 0;
+                const profitRate = trade.averagePrice > 0 
+                  ? (((currentPrice - trade.averagePrice) / trade.averagePrice) * 100).toFixed(2) 
+                  : "0.00";
+                
+                return (
+                  <tr key={trade.stockCode} className="hover:bg-blue-50 transition duration-300">
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-gray-800">{trade.stockName}</div>
+                      <div className="text-xs text-gray-400 font-mono">{trade.stockCode}</div>
+                    </td>
+                    <td className="px-6 py-4 text-right font-semibold text-gray-700">{trade.quantity}주</td>
+                    <td className="px-6 py-4 text-right text-gray-500 font-mono">{trade.averagePrice?.toLocaleString()} 원</td>
+                    <td className="px-6 py-4 text-right font-black text-blue-600 font-mono bg-blue-50/30 transition-colors duration-500">{currentPrice.toLocaleString()} 원</td>
+                    <td className={`px-6 py-4 text-right font-black font-mono transition-colors duration-500 ${Number(profitRate) >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
+                      {Number(profitRate) > 0 ? '+' : ''}{profitRate}%
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="bg-white border-2 border-dashed rounded-3xl py-20 text-center text-gray-400 flex flex-col items-center gap-4">
+          <Wallet size={48} className="opacity-20" />
+          <p className="text-lg font-medium">보유한 주식이 없습니다.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MissionCenter = ({ missions, user, onClaimSuccess }) => {
+  if (!missions) return <div className="text-center py-20"><RefreshCw className="animate-spin mx-auto mb-4" /></div>;
+
+  const claim = async (type) => {
+    try {
+      const res = await api.post('/missions/claim', { loginId: user.loginId, type });
+      alert(res.data);
+      onClaimSuccess();
+    } catch (e) { alert(e.response?.data || "보상 수령 실패"); }
+  };
+
+  const missionList = [
+    { id: 'BUY', title: '첫 매수 성공', desc: '주식을 처음 매수하면 보상을 드립니다.', completed: missions.buyCompleted, claimed: missions.buyClaimed, reward: '50,000' },
+    { id: 'SELL', title: '첫 매도 성공', desc: '수익 실현의 첫 걸음!', completed: missions.sellCompleted, claimed: missions.sellClaimed, reward: '30,000' },
+    { id: 'POST', title: '인사이트 공유', desc: '커뮤니티에 글을 작성해보세요.', completed: missions.postCreated, claimed: missions.postClaimed, reward: '10,000' },
+    { id: 'LIKE', title: '좋아요 클릭', desc: '다른 투자자의 글을 응원하세요.', completed: missions.likeCompleted, claimed: missions.likeClaimed, reward: '5,000' },
+    { id: 'COMMENT', title: '댓글 소통', desc: '댓글로 의견을 나누어보세요.', completed: missions.commentCreated, claimed: missions.commentClaimed, reward: '5,000' },
+  ];
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div className="bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-10 rounded-[2rem] text-white shadow-2xl relative overflow-hidden">
+        <div className="relative z-10"><h2 className="text-3xl font-black mb-3 italic">MISSION CENTER</h2><p className="opacity-80 font-medium">미션을 달성하고 투자 지원금을 받으세요!</p></div>
+        <CheckCircle2 size={120} className="absolute top-0 right-0 p-8 opacity-10" />
+      </div>
+      <div className="space-y-4">
+        {missionList.map(m => (
+          <div key={m.id} className={`bg-white p-6 rounded-2xl border-2 transition-all flex justify-between items-center ${m.completed && !m.claimed ? 'border-yellow-400 bg-yellow-50 shadow-md scale-[1.02]' : 'border-gray-100 shadow-sm'}`}>
+            <div className="flex gap-5 items-center">
+              <div className={`p-4 rounded-2xl ${m.completed ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-300'}`}><CheckCircle2 size={28} /></div>
+              <div><h4 className="font-bold text-xl text-gray-800">{m.title}</h4><p className="text-sm text-gray-500 mb-2">{m.desc}</p><span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-50 text-blue-600">보상: {m.reward}원</span></div>
+            </div>
+            <div>{!m.completed ? <div className="text-sm font-bold text-gray-400 bg-gray-50 px-5 py-2.5 rounded-xl border border-gray-100">진행 중</div> : m.claimed ? <div className="text-sm font-bold text-green-600 bg-green-50 px-5 py-2.5 rounded-xl border border-green-100">수령 완료</div> : <button onClick={() => claim(m.id)} className="bg-yellow-400 text-yellow-900 px-7 py-3 rounded-xl font-black hover:bg-yellow-500 transition shadow-lg">보상 받기</button>}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default App;

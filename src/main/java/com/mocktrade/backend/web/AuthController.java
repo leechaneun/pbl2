@@ -3,6 +3,7 @@ package com.mocktrade.backend.web;
 
 import com.mocktrade.backend.domain.member.Member;
 import com.mocktrade.backend.domain.member.MemberService;
+import com.mocktrade.backend.domain.mission.MissionService;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -21,9 +22,11 @@ import java.util.Map;
 public class AuthController {
 
     private final MemberService memberService;
+    private final MissionService missionService;//미션 추가
 
-    public AuthController(MemberService memberService) {
+    public AuthController(MemberService memberService, MissionService missionService) {
         this.memberService = memberService;
+        this.missionService = missionService;//미션 추가
     }
 
     //회원가입
@@ -38,6 +41,7 @@ public class AuthController {
 
         try {
             Member savedMember = memberService.register(member);
+            missionService.getMissionStatus(savedMember.getLoginId());//미션 추가
             return ResponseEntity.ok(savedMember);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -67,14 +71,15 @@ public class AuthController {
         }
     }
 
-   //세션 정보 확인
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(HttpSession session) {
         Member loginMember = (Member) session.getAttribute("loginMember");
-        if (loginMember == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다.");
-        }
-        return ResponseEntity.ok(loginMember);
+        if (loginMember == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        // [수정] 세션 데이터가 아닌 DB에서 최신 정보를 다시 조회해서 반환
+        Member freshMember = memberService.findByLoginId(loginMember.getLoginId());
+        freshMember.setPassword(null); // 보안
+        return ResponseEntity.ok(freshMember);
     }
 
     //로그아웃

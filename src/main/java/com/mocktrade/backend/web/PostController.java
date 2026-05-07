@@ -18,6 +18,7 @@ public class PostController {
 
     private final PostService postService;
 
+    //전체 조회
     @GetMapping
     public ResponseEntity<List<Post>> getAllPosts() {
         return ResponseEntity.ok(postService.findAllPosts());
@@ -27,7 +28,7 @@ public class PostController {
     public ResponseEntity<Post> getPost(@PathVariable String postId) {
         return ResponseEntity.ok(postService.getPostDetail(postId));
     }
-    //게시글 저장
+    //게시글 작성
     @PostMapping
     public ResponseEntity<String> savePost(@RequestBody Post post) {
         return ResponseEntity.ok(postService.createPost(post));

@@ -2,6 +2,8 @@ package com.mocktrade.backend.domain.trade;
 
 import com.mocktrade.backend.domain.member.Member;
 import com.mocktrade.backend.domain.member.MemberRepository;
+import com.mocktrade.backend.domain.mission.MissionService;
+import com.mocktrade.backend.domain.mission.MissionType;
 import com.mocktrade.backend.domain.stock.Stock;
 import com.mocktrade.backend.domain.stock.StockRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +19,7 @@ public class TradeService {
     private final MemberRepository memberRepository;
     private final StockRepository stockRepository;
     private final TradeRepository tradeRepository;
+    private final MissionService missionService;//미션 추가
 
     /**
      * 주식 매수 (돈 깎고 주식 추가)
@@ -51,6 +54,8 @@ public class TradeService {
 
         trade.updateBuyInfo(quantity, stock.getCurrentPrice());
         tradeRepository.save(trade);
+
+        missionService.completeMission(loginId, MissionType.BUY);//미션 추가(매수)
     }
 
     /**
@@ -76,6 +81,8 @@ public class TradeService {
         double sellAmount = (double) stock.getCurrentPrice() * quantity;
         member.setBalance(member.getBalance() + sellAmount);
         memberRepository.save(member);
+
+        missionService.completeMission(loginId,MissionType.SELL);//미션 추가(매도)
     }
 
     /**
