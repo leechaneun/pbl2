@@ -1,7 +1,6 @@
 package com.mocktrade.backend.web;
 
 import com.mocktrade.backend.domain.member.Member;
-import com.mocktrade.backend.domain.mission.Mission;
 import com.mocktrade.backend.domain.mission.MissionService;
 import com.mocktrade.backend.domain.mission.MissionType;
 import jakarta.servlet.http.HttpSession;

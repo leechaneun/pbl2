@@ -9,7 +9,7 @@ import {
   Wallet, 
   ArrowUpRight, 
   ArrowDownRight,
-  Send,
+  Send, 
   ThumbsUp,
   RefreshCw,
   AlertCircle,
@@ -228,6 +228,18 @@ const calculateTotalYield = (trades, stocks) => {
   return (((totalValue - totalCost) / totalCost) * 100).toFixed(2);
 };
 
+// 에러 메시지 추출 헬퍼
+const getErrorMessage = (err) => {
+  if (!err.response) return "서버와 연결할 수 없습니다.";
+  const data = err.response.data;
+  // 백엔드에서 BindingResult.getAllErrors()를 보낼 경우 처리
+  if (Array.isArray(data)) {
+    return data.map(item => item.defaultMessage || item).join('\n');
+  }
+  // 일반 String 메시지 또는 JSON 객체 처리
+  return typeof data === 'string' ? data : (data.message || "오류가 발생했습니다.");
+};
+
 // --- 서브 컴포넌트들 ---
 
 const AuthPage = ({ onLoginSuccess }) => {
@@ -248,7 +260,7 @@ const AuthPage = ({ onLoginSuccess }) => {
         onLoginSuccess();
       }
     } catch (err) {
-      alert(err.response?.data || "요청에 실패했습니다.");
+      alert(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -297,7 +309,7 @@ const StockDashboard = ({ stocks, user, onTradeSuccess }) => {
       alert(`${selectedStock.stockName} ${qty}주 ${type === 'buy' ? '매수' : '매도'} 완료!`);
       onTradeSuccess();
     } catch (e) {
-      alert(e.response?.data || "거래 실패");
+      alert(getErrorMessage(e));
     } finally {
       setTrading(false);
     }
@@ -391,8 +403,11 @@ const CommunityBoard = ({ posts, user, stocks, myTrades, onPostSuccess }) => {
       setNewPost({ title: '', content: '' });
       onPostSuccess();
       alert("투자 인사이트 게시글이 등록되었습니다!");
-    } catch (e) { alert("등록 실패"); }
-    finally { setSubmitting(false); }
+    } catch (e) {
+      alert(getErrorMessage(e));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleLike = async (postId) => {
@@ -401,7 +416,9 @@ const CommunityBoard = ({ posts, user, stocks, myTrades, onPostSuccess }) => {
       onPostSuccess();
       const updated = await api.get(`/posts/${postId}`);
       setSelectedPost(updated.data);
-    } catch (e) { alert("좋아요 실패"); }
+    } catch (e) {
+      alert(getErrorMessage(e));
+    }
   };
 
   const handleComment = async (postId) => {
@@ -412,7 +429,9 @@ const CommunityBoard = ({ posts, user, stocks, myTrades, onPostSuccess }) => {
       onPostSuccess();
       const updated = await api.get(`/posts/${postId}`);
       setSelectedPost(updated.data);
-    } catch (e) { alert("댓글 실패"); }
+    } catch (e) {
+      alert(getErrorMessage(e));
+    }
   };
 
   return (
@@ -579,7 +598,9 @@ const MissionCenter = ({ missions, user, onClaimSuccess }) => {
       const res = await api.post('/missions/claim', { loginId: user.loginId, type });
       alert(res.data);
       onClaimSuccess();
-    } catch (e) { alert(e.response?.data || "보상 수령 실패"); }
+    } catch (e) {
+      alert(getErrorMessage(e));
+    }
   };
 
   const missionList = [

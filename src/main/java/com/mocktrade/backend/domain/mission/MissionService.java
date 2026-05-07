@@ -6,11 +6,6 @@ import com.mocktrade.backend.domain.member.Member;
 import com.mocktrade.backend.domain.member.MemberRepository;
 import org.springframework.transaction.annotation.Transactional;
 
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import com.mocktrade.backend.domain.member.Member;
-import com.mocktrade.backend.domain.member.MemberRepository;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -24,9 +19,7 @@ public class MissionService {
                 .orElseGet(() -> missionRepository.save(Mission.init(loginId)));
     }
 
-    /**
-     * 미션 달성 시 호출 (Enum 사용)
-     */
+   //미션 달성 여부
     public void completeMission(String loginId, MissionType type) {
         Mission mission = getMissionStatus(loginId);
 
@@ -43,9 +36,7 @@ public class MissionService {
         missionRepository.save(mission);
     }
 
-    /**
-     * 보상 수령 시 호출 (Enum에 정의된 금액 사용)
-     */
+    //이상 없을 시 보상 지급
     @Transactional
     public void claimReward(String loginId, MissionType type) {
         Mission mission = getMissionStatus(loginId);
@@ -57,7 +48,6 @@ public class MissionService {
             throw new RuntimeException("미션을 달성하지 않았거나 이미 보상을 받았습니다.");
         }
 
-        // Enum에 설정된 미션별 보상 금액을 가져옵니다.
         double rewardAmount = type.getRewardAmount();
         member.setBalance(member.getBalance() + rewardAmount);
         memberRepository.save(member);
@@ -66,6 +56,7 @@ public class MissionService {
         missionRepository.save(mission);
     }
 
+    //보상 줄지 말지 판단
     private boolean canClaim(Mission m, MissionType type) {
         return switch (type) {
             case BUY -> m.isBuyCompleted() && !m.isBuyClaimed();
@@ -78,6 +69,7 @@ public class MissionService {
         };
     }
 
+    //미션 상태 업데이트
     private void updateClaimStatus(Mission m, MissionType type) {
         switch (type) {
             case BUY -> m.setBuyClaimed(true);

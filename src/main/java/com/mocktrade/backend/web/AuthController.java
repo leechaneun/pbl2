@@ -74,7 +74,9 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(HttpSession session) {
         Member loginMember = (Member) session.getAttribute("loginMember");
-        if (loginMember == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        if (loginMember == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다.");
+        }
 
         // [수정] 세션 데이터가 아닌 DB에서 최신 정보를 다시 조회해서 반환
         Member freshMember = memberService.findByLoginId(loginMember.getLoginId());
