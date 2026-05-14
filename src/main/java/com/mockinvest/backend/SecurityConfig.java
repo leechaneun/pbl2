@@ -26,7 +26,8 @@ public class SecurityConfig {
                                 "user/**",
                                 "/stocks/**",
                                 "/trade/**",     // 주식 거래 관련 API 허용
-                                "/missions/**"
+                                "/missions/**",
+                                "/posts/**"
                         ).permitAll() // 지정된 경로들은 누구나 접근 가능
                         .anyRequest().authenticated() // 그 외의 모든 요청은 인증 필요
                 )
